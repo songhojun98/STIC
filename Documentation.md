@@ -1,0 +1,194 @@
+# Documentation.md
+
+## Project Snapshot
+- Goal: ETTh1에서 정리한 STIC selective-trust mechanism을 numeric exogenous setting으로 일반화하고, 이후 CiK text-context prototype으로 확장할 준비를 마친다.
+- ETTh1 is now frozen as a mechanism reference package:
+  - `g0`: default gate / best average STIC metric
+  - `g1b`: strongest separation reference
+  - `g1b-topclip`: best mitigation reference
+  - `g1b-topclip-lite-0.75`: compromise candidate
+- ETTh1 baseline: `DLinear`, 3-seed `mse=0.07666958±0.00056474`, `mae=0.20652626±0.00086153`.
+- ETTh1 default STIC reference: `g0`, 3-seed `mse=0.06728923±0.00482104`, `mae=0.19414946±0.00467911`.
+- First numeric generalization result now exists on Exchange:
+  - DLinear 3-seed `mse=0.12461331±0.00412195`, `mae=0.28792103±0.00534950`
+  - STIC `g0` 3-seed `mse=0.12666177±0.00821164`, `mae=0.28746070±0.01620189`
+  - STIC `g1b` 3-seed `mse=0.13230964±0.00929011`, `mae=0.29635913±0.01650778`
+- S3 / Hybrid S3 are now archived negative simplification results:
+  - both showed worse metric trade-offs or negative utility alignment on Exchange
+  - active runtime code paths for these variants have been removed
+- Main unresolved issue: Exchange에서는 ETTh1보다 stronger selective-trust signal이 보였지만, `g1b`가 separation을 얻는 대신 average metric 손실을 감수한다. ILI와 CiK로 가기 전에 이 trade-off를 메시지로 고정해야 한다.
+
+## Latest Changes
+- 2026-03-11:
+  - changed files: `utils/cik_stic.py`, `scripts/cik/run_stic_cik.py`, `Plan.md`, `Documentation.md`
+  - summary: CiK용 thin STIC prototype을 구현했다. history-only baseline, rule-based text-conditioned context-aware branch, simple g0-style prediction gate, batch debug/eval runner를 정리했다.
+  - result: server `dkhan@100.70.96.36`에서 `ElectricityIncreaseInPredictionTask`와 `OraclePredUnivariateConstraintsTask`를 HF direct-load로 실행했다. Electricity에서는 `pred_h/pred_c/gate/pred=(4,24,1)` batch shape에서 `mse_h=4828618.6591 -> mse_c=40520.9670 -> mse=318499.4241`, `mae_h=511.0727 -> mae_c=106.6161 -> mae=182.7227`, `gate_mean=0.1586`를 확인했고, Oracle에서는 `mse_h=2.0413 -> mse_c=1.6641 -> mse=1.7774`, `mae_h=0.6037 -> mae_c=0.5437 -> mae=0.5693`, `gate_mean=0.1372`를 확인했다.
+- 2026-03-11:
+  - changed files: `models/STIC.py`, `run.py`, `exp/exp_long_term_forecasting.py`, `scripts/analyze_stic_gate_slices.py`, `Plan.md`, `Documentation.md`
+  - summary: active STIC runtime and analysis path에서 `s3`, `hs3`, `hs3-lite`를 제거하고 gate space를 `g0/g1b/g1b-topclip/lite-0.75`로 다시 고정했다.
+  - result: CLI, training loss, analysis spec에서 S3/Hybrid 전용 분기가 사라졌고 `g0/g1b` 기준 sanity compile이 통과했다.
+- 2026-03-09:
+  - changed files: `Plan.md`, `Documentation.md`
+  - summary: 첫 실험 기준을 `ETTh1 + DLinear + long_term_forecast + MS + OT`로 고정하고 STIC 초기 범위를 문서화했다.
+  - result: 다음 액션을 baseline 재현 실행으로 명확히 정했다.
+- 2026-03-09:
+  - changed files: server environment only
+  - summary: `dkhan_tailscale`에서 baseline 실행에 필요한 optional dependency(`datasets`, `sktime`, `patool`)를 설치하고 DLinear baseline을 1 epoch 실행했다.
+  - result: checkpoint/results 생성과 baseline metric 확보에 성공했다.
+- 2026-03-09:
+  - changed files: `models/STIC.py`, `Plan.md`, `Documentation.md`
+  - summary: DLinear-style history/context branch와 per-horizon trust gate를 갖는 최소 STIC forward를 추가했다.
+  - result: dummy batch와 실제 ETTh1 batch에서 `pred/pred_h/pred_c/gate` shape test를 통과했다.
+- 2026-03-09:
+  - changed files: `exp/exp_long_term_forecasting.py`, `Plan.md`, `Documentation.md`
+  - summary: forecasting loop가 STIC dict output과 STIC loss를 처리하도록 통합했다.
+  - result: 서버 `dkhan_tailscale`에서 STIC 1-epoch smoke run과 one-batch overfit을 통과했다.
+- 2026-03-09:
+  - changed files: `run.py`, `models/STIC.py`, `Plan.md`, `Documentation.md`
+  - summary: STIC ablation CLI와 mode switch를 추가해 `dynamic/static/history_only/always_on/no_gate` 모드를 지원하게 했다.
+  - result: 서버 `dkhan_tailscale`에서 네 ablation 모드의 shape test와 1-epoch smoke run을 통과했다.
+- 2026-03-09:
+  - changed files: `run.py`, `exp/exp_long_term_forecasting.py`, `Plan.md`, `Documentation.md`
+  - summary: train loop에 context-only corruption(`shuffle/swap/dropout/mixed`)과 clean/corrupt gate diagnostics를 추가했다. corrupt batch에서는 `pred_c` auxiliary loss를 약화할 수 있도록 loss를 분리했고, gate horizon quartile profile도 로그에 남기도록 했다.
+  - result: 서버 `dkhan_tailscale`에서 corruption-enabled smoke run을 통과했고 `mse=0.06718096`, `mae=0.19326566`를 기록했다. stronger corruption gate weight(`1.0`) run에서는 `mse=0.06465479`, `mae=0.19007719`까지 개선됐다.
+- 2026-03-09:
+  - changed files: `run.py`, `exp/exp_long_term_forecasting.py`, `Plan.md`, `Documentation.md`
+  - summary: Step 6.5용 gate utility checkpoint를 추가했다. soft utility target, paired clean/corrupt gate ranking loss, utility-gate correlation 로그를 지원하도록 정리했다.
+  - result: 서버 `dkhan_tailscale` smoke run에서 `soft target`은 `clean_gate_utility_corr=0.0635`, `corrupt_gate_utility_corr=0.0740`을 기록했고 test metric은 `mse=0.06453028`, `mae=0.18993369`였다. 하지만 `paired_gate_gap=0.0000`이어서 clean/corrupt separation은 아직 없다.
+- 2026-03-09:
+  - changed files: `scripts/probe_stic_context_delta.py`, `Plan.md`, `Documentation.md`
+  - summary: 같은 batch에서 `pred_c(clean)`와 `pred_c(corrupt)`가 실제로 얼마나 달라지는지 측정하는 probe를 추가했다.
+  - result: `shuffle/swap/dropout` 모두에서 context input은 크게 바뀌었지만 `pred_c_abs_delta=0`, `pred_abs_delta=0`, `gate_abs_delta=0`이었다. 현재 DLinear-style context branch는 target channel output이 non-target context corruption의 영향을 받지 않는다.
+- 2026-03-09:
+  - changed files: `models/STIC.py`, `Plan.md`, `Documentation.md`
+  - summary: context-aware branch를 `target-specific channel mixer + temporal head`로 교체했다. history-only branch와 gate 구조는 유지했다.
+  - result: 서버 `dkhan_tailscale`에서 1-epoch smoke run 후 probe를 재실행한 결과, `shuffle/swap/dropout` 모두 `pred_c_abs_delta > 0`, `utility_drop > 0`를 만족했다. 구조적 blocker는 해소됐지만 현재 metric은 `mse=0.07869560`, `mae=0.20921060`으로 아직 약하다.
+- 2026-03-09:
+  - changed files: `models/STIC.py`, `run.py`, `scripts/probe_stic_context_delta.py`, `Plan.md`, `Documentation.md`
+  - summary: context-aware branch sweep을 위해 `linear/mlp mixer`와 residual scale alpha 옵션을 추가했고, ETTh1에서 branch 안정화 sweep을 수행했다.
+  - result: `linear alpha=0.5`가 현재 best valid variant였고 `mse=0.06055605`, `mae=0.18780553`를 기록했다. probe 결과는 `shuffle pred_c_abs_delta=0.073596, utility_drop=0.007964`, `swap pred_c_abs_delta=0.034087, utility_drop=0.001689`, `dropout pred_c_abs_delta=0.018505, utility_drop=-0.000271`였다.
+- 2026-03-09:
+  - changed files: `run.py`, `Plan.md`, `Documentation.md`
+  - summary: seed를 실제 학습 재현에 반영하도록 수정하고, `linear alpha=0.5` 3-seed 및 `alpha=0.3/0.7` 비교로 branch stabilization 라운드를 수행했다.
+  - result: `alpha=0.5`의 3-seed mean/std는 `mse=0.06728923±0.00482104`, `mae=0.19414946±0.00467911`였다. `alpha=0.7`는 seed 2021 기준 `shuffle/swap/dropout` 모두 양수 utility drop을 보여 stability 후보로 남았다.
+- 2026-03-09:
+  - changed files: `Plan.md`, `Documentation.md`
+  - summary: `linear alpha=0.5`와 `alpha=0.7`를 동일한 3-seed 기준으로 비교해 branch default를 확정했다.
+  - result: `alpha=0.5`는 `mse=0.06728923±0.00482104`, `mae=0.19414946±0.00467911`로 `alpha=0.7`의 `mse=0.07108472±0.00760275`, `mae=0.19924942±0.00888931`보다 평균 metric과 seed 안정성이 더 좋았다. `alpha=0.7`는 `shuffle/swap` utility와 gate correlation은 더 컸지만, 기본 branch는 `alpha=0.5`로 확정했다.
+- 2026-03-09:
+  - changed files: `models/STIC.py`, `run.py`, `Plan.md`, `Documentation.md`
+  - summary: G0/G1/G2 gate input 모드를 추가하고, `linear alpha=0.5` branch 위에서 gate re-entry screening을 수행했다.
+  - result: 1-seed screening에서는 G1이 `clean_corr=0.2858`, `gap=0.0005`, `win=0.5272`로 가장 promising했다. 하지만 3-seed에서는 G1이 `clean_corr_mean=0.1531`, `gap_mean=0.0005`, `win_mean=0.5118`로 부분 개선만 보였고, G0 3-seed의 `win_mean=0.5288`과 metric은 넘지 못했다.
+- 2026-03-09:
+  - changed files: `models/STIC.py`, `run.py`, `Plan.md`, `Documentation.md`
+  - summary: 기존 G1을 pooling 기반 `g1a/g1b/g1c`로 세분화해, branch는 고정한 채 gate summary 설계만 다시 screening했다.
+  - result: 1-seed에서는 `g1b`가 가장 좋았다. `g0` 대비 `gap=0.0003 -> 0.0011`, `win=0.5383 -> 0.5623`, `clean_corr=0.1169 -> 0.1362`로 모두 개선됐다. 3-seed에서도 `g1b`는 `gap_mean=0.0010`, `win_mean=0.5768`로 `g0`의 `0.0002`, `0.4978`보다 분명히 좋아졌지만, `clean_corr_mean`은 `0.0830`으로 `g0`의 `0.0864`보다 약간 낮았고 metric은 더 나빠졌다.
+- 2026-03-09:
+  - changed files: `models/STIC.py`, `run.py`, `Plan.md`, `Documentation.md`
+  - summary: Compact G1 트랙으로 `g1-lite`, `g1-diff`, `g1-norm`을 추가하고, `g0/g1b`와 같은 branch 조건에서 1-seed screening을 수행했다.
+  - result: `g1b`가 우선순위 기준 best를 유지했다. `g1-lite`는 `clean_corr=0.2085`와 작은 metric 손실로 가장 balanced했지만, `gap=0.0005`와 `win=0.5384`는 `g1b`보다 약했다. `g1-diff`는 `gap=-0.0004`, `win=0.4250`로 실패했고, `g1-norm`은 `gap=0.0040`은 컸지만 `clean_corr=-0.1221`로 utility alignment가 무너졌다.
+- 2026-03-09:
+  - changed files: `Plan.md`, `Documentation.md`
+  - summary: Compact G1 track에서 `g1-lite`만 추가 3-seed로 확장해 `g0/g1b`와 평균 기준으로 비교했다.
+  - result: `g1-lite` 3-seed는 `clean_corr_mean=0.1247`, `gap_mean=0.0005`, `win_mean=0.5402`를 기록했다. `g0`보다는 separation이 좋아졌지만 `g1b`의 `gap_mean=0.0010`, `win_mean=0.5768`은 넘지 못했고, metric도 `mse_mean=0.07580999`, `mae_mean=0.20569150`로 더 나빴다.
+- 2026-03-09:
+  - changed files: `scripts/analyze_stic_gate_slices.py`, `Plan.md`, `Documentation.md`
+  - summary: `g0 / g1-lite / g1b`를 seed 2021 checkpoint 기준으로 utility slice, horizon slice, corruption type별로 다시 평가했다.
+  - result: `g1b`의 separation 이득은 `shuffle`과 `bottom/middle utility` slice에서 가장 강했고, `top utility` slice에서는 유지되지 않았다. `g1-lite`는 `middle utility`와 `dropout/swap`에서 더 balanced했지만 `g1b` 수준의 aggressive separation은 만들지 못했다. 현재 결정은 `g0` 기본 유지 + `g1b` refinement 우선이다.
+- 2026-03-09:
+  - changed files: `models/STIC.py`, `run.py`, `scripts/analyze_stic_gate_slices.py`, `Plan.md`, `Documentation.md`
+  - summary: `g1b` refinement로 `g1b-meanheavy`, `g1b-diff-lite`, `g1b-topclip`를 추가하고, seed 2021 screening 및 best 후보 3-seed 확장을 수행했다.
+  - result: `g1b-topclip(gamma_hidden=0.5)`가 1-seed 기준 best refinement였다. `top utility` MSE를 `0.1247 -> 0.1179`로 줄였고 `dropout` failure도 완화하면서 `shuffle` separation을 대부분 유지했다. 다만 3-seed에서는 `mse=0.07107104±0.00979103`, `mae=0.19940976±0.01281509`, `gap_mean=0.0004`, `win_mean=0.5656`으로 `g1b`보다 평균 separation은 약해 아직 default 교체 단계는 아니다.
+- 2026-03-09:
+  - changed files: `scripts/analyze_stic_gate_slices.py`, `scripts/analyze_stic_gate_slices_multiseed.py`, `Plan.md`, `Documentation.md`
+  - summary: `g1b` reference utility slice를 유지한 채 `g1b`와 `g1b-topclip`만 3-seed aggregate로 비교하는 slice-level 분석을 추가했다.
+  - result: `g1b-topclip`는 3-seed 평균에서도 `top` MSE를 `0.0390±0.0113 -> 0.0377±0.0113`로 낮췄고, overall metric도 `mse=0.07107104±0.00979103`, `mae=0.19940976±0.01281509`로 `g1b`보다 약간 좋았다. 하지만 `shuffle` gap은 `0.0045±0.0013 -> 0.0030±0.0008`로 줄어 strongest-separation 성격은 일부 약해졌다.
+- 2026-03-10:
+  - changed files: `models/STIC.py`, `run.py`, `scripts/analyze_stic_gate_slices.py`, `scripts/analyze_stic_gate_slices_multiseed.py`, `Plan.md`, `Documentation.md`
+  - summary: `g1b-topclip`보다 약한 hidden-summary refinement(`topclip-lite`, `sumreg-rms`, `sumreg-clip`)를 추가하고, 1-seed screening 후 best new candidate를 3-seed로 검증했다.
+  - result: `g1b-topclip-lite-0.75`가 best new candidate였다. 3-seed 평균에서 `top` MSE는 `0.0384±0.0114`로 `g1b-topclip(0.0377±0.0113)`보다 약간 나빴지만 `g1b(0.0390±0.0113)`보다는 좋았다. 대신 `shuffle` gap은 `0.0040±0.0013`으로 `g1b-topclip(0.0030±0.0008)`보다 크게 회복했다. 최종 판단은 `g1b` strongest separation reference 유지, `g1b-topclip` best mitigation reference 유지다.
+- 2026-03-10:
+  - changed files: `Plan.md`, `reports/ETTh1_final_summary.md`
+  - summary: ETTh1를 frozen reference package로 잠그고, gate 역할과 slice-level trade-off를 별도 문서로 정리했다.
+  - result: ETTh1는 이후 numeric/text generalization의 비교 기준선으로 재사용 가능한 상태가 됐다.
+- 2026-03-10:
+  - changed files: `scripts/long_term_forecast/STIC_Exchange.sh`, `scripts/long_term_forecast/STIC_ILI.sh`, `reports/Exchange_initial_summary.md`
+  - summary: Exchange/ILI용 fixed-setting STIC 실행 스크립트를 추가하고, Exchange에서 `g0/g1b/g1b-topclip/lite-0.75` 1-seed screening 후 `g0/g1b` 3-seed follow-up을 수행했다.
+  - result: Exchange는 ETTh1보다 stronger selective-trust signal을 보였다. `g1b`는 3-seed 기준 `clean_corr=0.0662±0.0511`, `gap=0.0022±0.0011`, `win=0.6358±0.0541`로 `g0`의 `-0.0342±0.0111`, `0.0017±0.0010`, `0.5728±0.0921`보다 separation signal이 강했다.
+- 2026-03-10:
+  - changed files: `reports/CiK_integration_memo.md`, `Plan.md`
+  - summary: CiK benchmark interface를 점검하고 STIC minimal prototype memo를 작성했다.
+  - result: first prototype candidate를 `ElectricityIncreaseInPredictionTask` 계열로, second candidate를 `OraclePredUnivariateConstraintsTask` family로 고정했다.
+- 2026-03-10:
+  - changed files: `models/STIC.py`, `run.py`, `exp/exp_long_term_forecasting.py`, `scripts/analyze_stic_gate_slices.py`, `Plan.md`, `Documentation.md`
+  - summary: `g1b`의 hidden-summary gate를 더 단순한 bucket-wise sufficient-statistic shrinkage gate(S3-Gate)로 대체하는 실험 경로를 추가했다. `s3-soft`와 `s3-oracle` teacher mode를 모두 지원하고, Exchange slice analysis가 teacher mode까지 읽도록 분석 스크립트를 확장했다.
+  - result: ETTh1 sanity는 통과했고, Exchange 1-seed에서는 `s3-soft`/`s3-oracle`이 모두 `gap≈0.0041`, `win≈0.619`를 보였지만 metric은 `mse≈0.1704`, `mae≈0.3304`로 크게 악화됐다. best S3 variant인 `s3-soft`의 Exchange 3-seed는 `mse=0.13920003±0.02216821`, `mae=0.30366290±0.02047961`, `clean_corr=-0.1232±0.1130`, `gap=0.0038±0.0005`, `win=0.6213±0.0060`이었다.
+- 2026-03-10:
+  - changed files: `models/STIC.py`, `run.py`, `exp/exp_long_term_forecasting.py`, `scripts/analyze_stic_gate_slices.py`, `Plan.md`, `Documentation.md`
+  - summary: `g0`의 directional bucket summary와 compact stats를 결합한 Hybrid S3(`hs3`, `hs3-lite`)를 추가하고, soft/oracle teacher를 모두 Exchange full evaluation까지 검증했다.
+  - result: ETTh1 sanity는 통과했지만 세 Hybrid variant 모두 `clean_corr < 0`를 유지했다. best candidate `hs3-oracle`도 Exchange 3-seed에서 `mse=0.17156475±0.02745911`, `mae=0.33928200±0.02461116`, `clean_corr=-0.0585±0.0466`, `gap=0.0001±0.0034`, `win=0.5548±0.0321`로 `g0`와 `g1b`를 모두 넘지 못했다.
+
+## Known Bugs / Risks
+- 현재 STIC 통합은 `exp_long_term_forecasting.py`에만 들어가 있어 다른 task 실험 파일에는 재사용되지 않는다.
+- data loader의 top-level optional dependency import 때문에 task와 무관한 패키지 누락도 실행을 막는다.
+- `stic_target_index`로 마지막 채널 가정을 피할 수 있지만 dataset별 target/channel 정합성은 여전히 사용자가 맞춰줘야 한다.
+- gate diagnostics상 `clean_gate_mean`과 `corrupt_gate_mean`이 거의 같아, dynamic gate가 아직 context utility를 표현하지 못한다.
+- `pair_rank_weight=0.1`을 켜도 `paired_gate_gap`이 0에 머물러, 현재 gate input만으로는 clean/corrupt discrimination이 거의 불가능할 수 있다.
+- 기존 DLinear-style `context_branch`는 channel-wise mapping이라 target slice를 뽑는 순간 exogenous context influence가 사라졌다. 새 branch에서는 이 문제를 해결했지만, 아직 전체 예측 metric과 gate responsiveness는 충분히 안정적이지 않다.
+- `linear alpha=0.5`는 현재 best default branch지만, seed variance가 완전히 작은 편은 아니어서 gate 해석 시 평균 기준으로 봐야 한다.
+- `linear alpha=0.7`는 shuffle/swap sensitivity와 gate correlation은 더 크지만, 평균 metric과 paired win rate는 더 나쁘다.
+- G1 gate input은 G0보다 `clean_gate_utility_corr`와 `paired_gate_gap`을 올렸지만, `paired_gate_win_rate`와 metric은 오히려 낮다.
+- G2 gate input은 gap은 키웠지만 `win_rate < 0.5`로 분리 방향이 불안정하다.
+- `g1b`는 현재까지 가장 나은 gate-input redesign이다. `paired_gate_gap`과 `paired_gate_win_rate`는 분명히 개선했지만, `clean_gate_utility_corr` 평균과 metric은 아직 G0를 안정적으로 넘지 못한다.
+- `g1-lite`는 compact summary 후보 중 가장 balanced하지만, `g1b`를 대체할 정도의 separation 이득은 아직 없다.
+- `g1-norm`은 gap만 보면 강하지만 clean correlation이 음수라 current objective와는 정렬되지 않는다.
+- `g1b`의 separation 이득은 주로 `shuffle` 및 `bottom/middle utility` 구간에서 나오고, `top utility` 구간에서는 유지되지 않는다.
+- `g1-lite`는 `middle utility`와 `dropout/swap`에서 더 balanced하지만, `g1b`보다 강한 separation은 만들지 못한다.
+- `g1b-topclip`는 현재 가장 유망한 refinement다. 3-seed 평균에서도 `top utility`와 overall metric은 개선하지만, `shuffle` gap을 일부 희생하고 `swap/dropout` 완화는 약한 수준이다.
+- `g1b-topclip-lite-0.75`는 현재 best compromise candidate다. `shuffle` gap은 `g1b`에 가깝게 회복하지만, `top utility`와 overall metric에서는 `g1b-topclip` 우위를 뒤집지 못했다.
+- drift-slice 평가와 정식 gate calibration 평가는 아직 없다.
+- Exchange에서는 `g1b`가 ETTh1보다 강한 separation을 보였지만, average MSE/MAE는 여전히 `g0`와 DLinear baseline보다 나쁘다.
+- archived note: S3 / Hybrid S3는 negative simplification result였고, 현재 active STIC runtime path에는 포함하지 않는다.
+- ILI는 wiring만 준비됐고 아직 첫 run을 하지 않았다.
+- CiK는 memo 단계까지는 정리됐지만 text-conditioned branch 구현은 아직 시작하지 않았다.
+
+ - CiK thin prototype은 구현됐지만 현재 text-conditioned branch는 task-specific rule parser 기반이라 아직 learned text encoder나 trainable adaptation이 아니다.
+ - CiK HF dataset은 현재 `test` split만 노출되어 있어 이번 라운드 결과는 small-sample prototype validation이며 benchmark-scale 결론으로 일반화하면 안 된다.
+ - Electricity task에서는 gate가 active ROI에서 high-trust를 주며 `pred_final`을 `pred_h`와 `pred_c` 사이로 옮기지만, 평균 metric은 여전히 `pred_c`보다 보수적이다.
+ - Oracle task는 wiring과 constraint-aware clipping이 동작하지만 ROI metric이 없고, 현재는 bound violation 위치 중심의 coarse gate만 사용한다.
+
+## Important Decisions
+- 첫 구현은 `DLinear` backbone 하나만 지원한다.
+- 첫 task는 `long_term_forecast`로 제한한다.
+- 첫 구현은 data loader 수정 없이 model 내부에서 target/context를 분리한다.
+- baseline과 후속 검증은 서버 `dkhan_tailscale`에서 수행한다.
+- 첫 STIC gate는 `pred_h`, `pred_c`, `pred_c - pred_h`를 입력으로 하는 horizon-wise MLP를 사용한다.
+- 첫 STIC training loss는 `pred + auxiliary + gate BCE` 조합으로 시작한다.
+- ablation은 `stic_mode` 하나로 스위치하고 `no_gate`는 `always_on` alias로 둔다.
+- corruption training에서는 target history channel은 유지하고 context channel만 손상시킨다.
+- corruption batch에서도 utility 기반 gate target을 계산하되, low-trust regularization은 별도 항으로 유지한다.
+- Step 6.5에서는 gate supervision을 hard label보다 utility-aligned target 중심으로 옮기고, 같은 batch의 clean/corrupt gate gap을 별도로 기록한다.
+- Step 6.6에서는 gate를 더 건드리지 않고 context-aware branch만 target-specific cross-channel mixer로 교체한다.
+- Step 6.7에서는 `linear mixer`를 STIC 기본 branch family로 채택하고, `alpha=0.5`를 기본 branch로 확정한다.
+- Step 8에서는 G0/G1/G2 gate input 비교를 추가하고, 현재 기본값은 여전히 G0로 유지한다. G1은 가장 promising한 redesign이지만 아직 기본값 교체 단계는 아니다.
+- Step 8.1에서는 `g1a/g1b/g1c` screening을 추가하고, 현재 가장 promising한 후보를 `g1b`로 갱신한다. 다만 기본값 교체는 보류하고 G0를 유지한다.
+- Step 8.2에서는 Compact G1(`g1-lite`, `g1-diff`, `g1-norm`)을 추가했지만, 현재 3-seed 확장 후보는 여전히 `g1b`다.
+- `g1-lite` 3-seed까지 확인한 뒤에도 gate input 기본값은 계속 `g0`, 가장 유망한 redesign 후보는 `g1b`로 유지한다.
+- Step 8.3에서는 slice analysis를 통해 `g1b`와 `g1-lite`의 tradeoff가 utility slice / horizon slice / corruption type별로 어디서 갈리는지 정리했다. 다음 단계는 `g1b refinement`이지 `g1-lite` 승격이 아니다.
+- Step 8.4에서는 `g1b` refinement(`meanheavy`, `diff-lite`, `topclip`)를 비교했고, `g1b-topclip`를 best refinement 후보로 선정했다. 다만 기본 gate input은 계속 `g0`로 유지하고, `g1b`는 strongest-separation reference로 남긴다.
+- Step 8.5에서는 `g1b` reference slice 기준 3-seed aggregate를 계산했고, `g1b-topclip`가 `top utility`와 overall metric을 개선함을 확인했다. 하지만 `shuffle` gap 감소와 약한 `swap/dropout` 완화 때문에 아직 `g1b-topclip` 승격보다는 refinement candidate 유지가 더 적절하다.
+- Step 8.6에서는 더 약한 hidden-summary refinement를 비교했고, `g1b-topclip-lite-0.75`를 best compromise candidate로 확인했다. 하지만 최종 reference를 바꿀 정도의 우위는 없어 현재 기준은 `g1b` + `g1b-topclip` 체제를 유지한다.
+- ETTh1는 이제 frozen reference benchmark로 취급하고, 추가 gate refinement는 중단한다.
+- numeric generalization의 첫 대상은 Exchange로 고정하고, 4-way screening 후 가장 informative한 2-gate만 3-seed로 확장한다.
+- Exchange에서는 `g0`를 default numeric reference로, `g1b`를 mechanism reference로 유지한다.
+- S3 / Hybrid S3는 historical negative result로만 남기고, active implementation에서는 제거한다.
+- CiK prototype은 `history-only / text-conditioned context-aware / trust gate` 구조를 유지하는 thin adapter 방식으로 시작한다.
+
+## Next 3 Tasks
+1. Exchange 결과를 `g0 default vs g1b mechanism` 구도로 정리하고, ETTh1보다 stronger selective-trust signal인지 메시지를 고정한다.
+2. ILI를 같은 fixed-setting 4-way screening으로 확장할지, 아니면 Exchange 결과만으로 numeric section을 먼저 잠글지 결정한다.
+3. `reports/CiK_integration_memo.md`를 기준으로 electricity task용 minimal prototype 파일 뼈대를 다음 라운드에서 시작한다.
+## Next 3 Tasks (CiK Update)
+1. Electricity task에서 distractor variants까지 포함해 text parser가 harmful context에도 selective-trust를 유지하는지 확인한다.
+2. Oracle constraints family를 1개 더 늘리거나 rule parser를 넓혀 second-task evidence를 강화한다.
+3. CiK thin runner 결과를 바탕으로 trainable text adapter 또는 lightweight calibration gate가 필요한지 결정한다.

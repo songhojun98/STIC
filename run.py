@@ -6,12 +6,19 @@ from utils.print_args import print_args
 import random
 import numpy as np
 
-if __name__ == '__main__':
-    fix_seed = 2021
-    random.seed(fix_seed)
-    torch.manual_seed(fix_seed)
-    np.random.seed(fix_seed)
 
+def str2bool(value):
+    """Parse common string forms into booleans for argparse."""
+    if isinstance(value, bool):
+        return value
+    value = value.lower()
+    if value in {'true', '1', 'yes', 'y'}:
+        return True
+    if value in {'false', '0', 'no', 'n'}:
+        return False
+    raise argparse.ArgumentTypeError(f'Invalid boolean value: {value}')
+
+if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='TimesNet')
 
     # basic config
@@ -111,7 +118,7 @@ if __name__ == '__main__':
 
     # Augmentation
     parser.add_argument('--augmentation_ratio', type=int, default=0, help="How many times to augment")
-    parser.add_argument('--seed', type=int, default=2, help="Randomization seed")
+    parser.add_argument('--seed', type=int, default=2021, help="Randomization seed")
     parser.add_argument('--jitter', default=False, action="store_true", help="Jitter preset augmentation")
     parser.add_argument('--scaling', default=False, action="store_true", help="Scaling preset augmentation")
     parser.add_argument('--permutation', default=False, action="store_true",
@@ -147,12 +154,78 @@ if __name__ == '__main__':
     parser.add_argument('--individual', action='store_true', default=False,
                         help='DLinear: a linear layer for each variate(channel) individually')
 
+    # STIC
+    parser.add_argument('--stic_mode', type=str, default='dynamic',
+                        choices=['dynamic', 'static', 'history_only', 'always_on', 'no_gate'],
+                        help='STIC ablation mode')
+    parser.add_argument('--stic_static_gate_value', type=float, default=0.5,
+                        help='constant gate value used when stic_mode=static')
+    parser.add_argument('--stic_aux_weight', type=float, default=0.1,
+                        help='auxiliary branch loss weight for STIC')
+    parser.add_argument('--stic_gate_weight', type=float, default=0.1,
+                        help='gate supervision loss weight for STIC')
+    parser.add_argument('--stic_gate_target_mode', type=str, default='soft',
+                        choices=['hard', 'soft'],
+                        help='target type for STIC gate supervision')
+    parser.add_argument('--stic_gate_soft_tau', type=float, default=0.02,
+                        help='temperature for soft utility gate targets')
+    parser.add_argument('--stic_gate_input_mode', type=str, default='g0',
+                        choices=['g0', 'g1', 'g1a', 'g1b', 'g1c', 'g1-lite', 'g1-diff', 'g1-norm',
+                                 'g1b-meanheavy', 'g1b-diff-lite', 'g1b-topclip',
+                                 'g1b-topclip-lite', 'g1b-sumreg-rms', 'g1b-sumreg-clip',
+                                 'g2'],
+                        help='feature set used to build the STIC trust-gate input')
+    parser.add_argument('--stic_gate_hidden_feat_dim', type=int, default=8,
+                        help='hidden summary width used by G1/G2 gate inputs')
+    parser.add_argument('--stic_gate_stats_mode', type=str, default='basic',
+                        choices=['basic'],
+                        help='statistics bundle used by the richer G2 gate input')
+    parser.add_argument('--stic_gate_std_scale', type=float, default=1.0,
+                        help='scale applied to std-pooled gate summaries for mean-heavy G1B variants')
+    parser.add_argument('--stic_gate_hidden_scale', type=float, default=1.0,
+                        help='scale applied to hidden-summary gate inputs for topclip G1B variants')
+    parser.add_argument('--stic_gate_summary_reg_mode', type=str, default='none',
+                        choices=['none', 'rms', 'clip'],
+                        help='lightweight regularization applied to hidden gate summaries')
+    parser.add_argument('--stic_gate_summary_clip_value', type=float, default=1.0,
+                        help='max-norm clip value used when stic_gate_summary_reg_mode=clip')
+    parser.add_argument('--stic_target_index', type=int, default=-1,
+                        help='target channel index for STIC in multivariate inputs; -1 uses the last channel')
+    parser.add_argument('--stic_context_corruption_mode', type=str, default='none',
+                        choices=['none', 'shuffle', 'swap', 'dropout', 'mixed'],
+                        help='context corruption mode applied during STIC training')
+    parser.add_argument('--stic_context_corruption_prob', type=float, default=0.0,
+                        help='probability of applying context corruption to a training batch')
+    parser.add_argument('--stic_context_dropout_p', type=float, default=0.3,
+                        help='dropout probability used when stic_context_corruption_mode=dropout')
+    parser.add_argument('--stic_context_corruption_gate_weight', type=float, default=0.1,
+                        help='extra gate regularization weight for corrupted batches')
+    parser.add_argument('--stic_corrupt_context_aux_weight', type=float, default=0.0,
+                        help='relative auxiliary weight for pred_c on corrupted batches; 0 keeps only pred_h aux')
+    parser.add_argument('--stic_pair_rank_weight', type=float, default=0.0,
+                        help='paired clean/corrupt gate ranking loss weight')
+    parser.add_argument('--stic_pair_rank_margin', type=float, default=0.05,
+                        help='margin for paired clean/corrupt gate ranking loss')
+    parser.add_argument('--stic_context_mixer_type', type=str, default='linear',
+                        choices=['linear', 'mlp'],
+                        help='channel mixer type used by the STIC context-aware branch')
+    parser.add_argument('--stic_context_mixer_hidden_dim', type=int, default=0,
+                        help='hidden dimension for the MLP context mixer; 0 uses an internal default')
+    parser.add_argument('--stic_context_residual_scale', type=float, default=0.5,
+                        help='residual scale alpha for the STIC context-aware branch')
+
     # TimeFilter
     parser.add_argument('--alpha', type=float, default=0.1, help='KNN for Graph Construction')
     parser.add_argument('--top_p', type=float, default=0.5, help='Dynamic Routing in MoE')
     parser.add_argument('--pos', type=int, choices=[0, 1], default=1, help='Positional Embedding. Set pos to 0 or 1')
 
     args = parser.parse_args()
+    random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
+
     if torch.cuda.is_available() and args.use_gpu:
         args.device = torch.device('cuda:{}'.format(args.gpu))
         print('Using GPU')
@@ -171,6 +244,39 @@ if __name__ == '__main__':
 
     print('Args in experiment:')
     print_args(args)
+
+    exp_des = args.des
+    if args.model == 'STIC':
+        exp_des = f'{args.des}_sm{args.stic_mode}'
+        residual_scale_tag = str(args.stic_context_residual_scale).replace('.', 'p')
+        exp_des = (
+            f'{exp_des}_mx{args.stic_context_mixer_type}'
+            f'_ra{residual_scale_tag}'
+            f'_gi{args.stic_gate_input_mode}'
+        )
+        if args.stic_gate_input_mode in {'g1', 'g1a', 'g1b', 'g1c', 'g1-lite', 'g1-diff', 'g1-norm',
+                                         'g1b-meanheavy', 'g1b-diff-lite', 'g1b-topclip',
+                                         'g1b-topclip-lite', 'g1b-sumreg-rms', 'g1b-sumreg-clip', 'g2'}:
+            exp_des = f'{exp_des}_gh{args.stic_gate_hidden_feat_dim}'
+        if args.stic_gate_input_mode == 'g1b-meanheavy':
+            std_scale_tag = str(args.stic_gate_std_scale).replace('.', 'p')
+            exp_des = f'{exp_des}_gsd{std_scale_tag}'
+        if args.stic_gate_input_mode in {'g1b-topclip', 'g1b-topclip-lite'}:
+            hidden_scale_tag = str(args.stic_gate_hidden_scale).replace('.', 'p')
+            exp_des = f'{exp_des}_gsh{hidden_scale_tag}'
+        if args.stic_gate_input_mode in {'g1b-sumreg-rms', 'g1b-sumreg-clip'}:
+            exp_des = f'{exp_des}_gr{args.stic_gate_summary_reg_mode}'
+            if args.stic_gate_summary_reg_mode == 'clip':
+                clip_tag = str(args.stic_gate_summary_clip_value).replace('.', 'p')
+                exp_des = f'{exp_des}_gcv{clip_tag}'
+        if args.stic_gate_input_mode == 'g2':
+            exp_des = f'{exp_des}_gs{args.stic_gate_stats_mode}'
+        if args.stic_context_corruption_mode != 'none' and args.stic_context_corruption_prob > 0:
+            corruption_prob_tag = str(args.stic_context_corruption_prob).replace('.', 'p')
+            exp_des = (
+                f'{exp_des}_cm{args.stic_context_corruption_mode}'
+                f'_cp{corruption_prob_tag}'
+            )
 
 
     if args.task_name == 'long_term_forecast':
@@ -218,7 +324,7 @@ if __name__ == '__main__':
                 args.factor,
                 args.embed,
                 args.distil,
-                args.des, ii)
+                exp_des, ii)
 
             print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
             exp.train(setting)
@@ -252,7 +358,7 @@ if __name__ == '__main__':
             args.factor,
             args.embed,
             args.distil,
-            args.des, ii)
+            exp_des, ii)
 
         print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
         exp.test(setting, test=1)

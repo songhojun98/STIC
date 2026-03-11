@@ -166,3 +166,23 @@ result_anomaly_detection.txt
 scripts/augmentation/
 run_anylearn.py
 environment.txt
+
+# Local experiment artifacts
+logs/
+stage2_logs/
+tmp_sync/
+__pycache__/
+.___pycache__/
+.___pycache__
+
+# Common training outputs
+*.pt
+*.pth
+*.ckpt
+*.npy
+*.npz
+*.pkl
+*.joblib
+
+# OS/editor noise
+.DS_Store
