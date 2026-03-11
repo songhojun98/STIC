@@ -1,0 +1,49 @@
+{
+  "eval_mode": "both",
+  "num_sample_paths": 32,
+  "summaries": {
+    "debug": [
+      {
+        "task_name": "BoundedPredConstraintsBasedOnPredQuantilesTask",
+        "rows": 5,
+        "mse": 2.7130432683974504,
+        "mae": 1.0620655596256257,
+        "mse_h": 34.269049210846426,
+        "mae_h": 2.4453332751989363,
+        "mse_c": 0.9998779033310712,
+        "mae_c": 0.5417084045708179,
+        "mse_gain_vs_h": 31.556005942448973,
+        "mae_gain_vs_h": 1.3832677155733109,
+        "roi_mse": NaN,
+        "roi_mae": NaN,
+        "gate_mean": 0.2881614863872528,
+        "gate_roi_mean": NaN,
+        "gate_non_roi_mean": NaN,
+        "pred_c_delta_mean_abs": 1.9036249607801436,
+        "pred_final_delta_mean_abs": 1.3832678757607937
+      }
+    ],
+    "official": [
+      {
+        "task_name": "BoundedPredConstraintsBasedOnPredQuantilesTask",
+        "rows": 5,
+        "official_metric_name": "threshold_weighted_crps.metric",
+        "official_h_metric": 5.18951122629619,
+        "official_c_metric": 0.19797047053679465,
+        "official_final_metric": 1.4649612996485377,
+        "official_gain_final_vs_h": 3.724549926647653,
+        "official_gain_final_vs_c": -1.266990829111743,
+        "official_h_crps": 0.5692314178095289,
+        "official_c_crps": 0.12167288624121764,
+        "official_final_crps": 0.23068613175047328,
+        "official_h_roi_crps": 0.5692314178095289,
+        "official_c_roi_crps": 0.12167288624121764,
+        "official_final_roi_crps": 0.23068613175047328,
+        "official_h_violation_mean": 0.46636598110198973,
+        "official_c_violation_mean": 0.010277575463987887,
+        "official_final_violation_mean": 0.12772941887378692,
+        "gate_mean": 0.2881614863872528
+      }
+    ]
+  }
+}

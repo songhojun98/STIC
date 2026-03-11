@@ -21,8 +21,8 @@ STIC is useful when context is essential but not always trustworthy.
 
 ## Current Round Objectives
 1. Freeze the numeric narrative in documentation and naming.
-2. Wire the CiK thin runner to the official benchmark evaluation path.
-3. Test whether selective trust improves robustness under harmful or misleading text.
+2. Re-run and save the fixed 5-task CiK suite as a reproducible artifact.
+3. Extend the Oracle/constraint-family evidence if a benchmark-provided harmful variant exists, or document its absence transparently.
 4. Produce outputs that support a paper-level main-vs-appendix decision for CiK.
 
 ## Workstreams
@@ -82,7 +82,8 @@ Success criteria:
 ## Current Status
 - Numeric STIC core is already in place and should not be refactored in this round.
 - CiK thin prototype already runs history-only, text-conditioned, and gated forecasts.
-- Official CiK evaluation wiring is now the highest-priority implementation task.
+- Official CiK evaluation wiring is already complete.
+- `ElectricityIncreaseInPredictionWithSplitContext` is the current key harmful-text robustness result.
 - Harmful-context evidence, not clean-text average performance, will determine CiK section strength.
 
 ## Decision Rule For This Round

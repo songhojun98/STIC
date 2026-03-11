@@ -63,6 +63,12 @@ Execution environment:
 - python: `/home/dkhan/anaconda3/bin/python3`
 - CiK dataset split used: `test`
 
+Artifact-freeze outputs:
+- `reports/cik_suite_freeze_rows_20260311.csv`
+- `reports/cik_suite_freeze_20260311.csv`
+- `reports/cik_suite_freeze_20260311.json`
+- `reports/CiK_official_eval_summary_20260311.md`
+
 ### Clean Relevant Text
 Task:
 - `ElectricityIncreaseInPredictionTask`
@@ -96,9 +102,9 @@ Task:
 - `OraclePredUnivariateConstraintsTask`
 
 Official summary:
-- `official_h_metric = 0.0869`
-- `official_c_metric = 0.0402`
-- `official_final_metric = 0.0575`
+- `official_h_metric = 0.0866`
+- `official_c_metric = 0.0398`
+- `official_final_metric = 0.0569`
 
 Debug summary:
 - `mse_h = 2.0413`
@@ -112,6 +118,25 @@ Debug summary:
 Interpretation:
 - constraint-aware context wiring works
 - this is secondary evidence, not the main CiK robustness result
+
+### Oracle Harmful-Variant Search
+Benchmark-provided Oracle/constraint-family task names found in the shipped task registry:
+- `OraclePredUnivariateConstraintsTask`
+- `BoundedPredConstraintsBasedOnPredQuantilesTask`
+
+Current conclusion:
+- benchmark-provided harmful Oracle variant not found
+- no Oracle-family distractor, misleading, split-context, or conflicting-constraint task was found in the benchmark task names
+- `BoundedPredConstraintsBasedOnPredQuantilesTask` is the nearest extra constraint-family task, but it is not harmful-text evidence
+
+Secondary bounded-task check:
+- official summary on `BoundedPredConstraintsBasedOnPredQuantilesTask`:
+  - `official_h_metric = 5.1895`
+  - `official_c_metric = 0.1980`
+  - `official_final_metric = 1.4650`
+- interpretation:
+  - the current constraint parser transfers to another benchmark-provided constraint task
+  - this supports constraint-family coverage, but not harmful-text robustness
 
 ### Harmful-Context Electricity Variants
 Selected tasks:
@@ -185,7 +210,12 @@ That recommendation is conditional:
 - not every distractor variant is equally harmful for the current parser
 - `pred_final` is intentionally conservative, so clean-text averages alone can understate its value
 
+## Transparency Note
+- the official CiK metric path is executed through a Python 3.8 compatibility loader
+- this is required because the upstream metric package uses newer type-annotation syntax on import
+- the metric logic itself still comes from the official benchmark code rather than a custom rewrite
+
 ## Next Step
-1. Save a reproducible official-eval summary across clean and harmful electricity tasks.
-2. Keep CiK claims centered on degradation control, not benchmark solving.
+1. Keep the CiK claim centered on harmful-text degradation control, not benchmark solving.
+2. Decide whether a second harmful text family exists beyond electricity; if not, keep the limitation explicit.
 3. Package numeric and CiK sections with the fixed role split above.
