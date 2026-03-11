@@ -30,8 +30,45 @@ class STICCiKOutput:
     def sample_paths(self, n_samples: int, seed: int) -> np.ndarray:
         """Return probabilistic sample paths around the gated point forecast."""
 
-        horizon = int(self.pred.shape[0])
-        center = self.pred.reshape(1, horizon, 1)
+        return self.sample_paths_for_prediction(
+            prediction=self.pred,
+            n_samples=n_samples,
+            seed=seed,
+        )
+
+    def sample_paths_for_branch(self, branch_name: str, n_samples: int, seed: int) -> np.ndarray:
+        """Return sample paths around a selected branch forecast."""
+
+        branch_predictions = {
+            "pred": self.pred,
+            "pred_final": self.pred,
+            "pred_h": self.pred_h,
+            "history_only": self.pred_h,
+            "pred_c": self.pred_c,
+            "context_aware": self.pred_c,
+        }
+        if branch_name not in branch_predictions:
+            available = ", ".join(sorted(branch_predictions))
+            raise KeyError(
+                f"Unknown branch '{branch_name}'. Available branches: {available}"
+            )
+        return self.sample_paths_for_prediction(
+            prediction=branch_predictions[branch_name],
+            n_samples=n_samples,
+            seed=seed,
+        )
+
+    def sample_paths_for_prediction(
+        self,
+        prediction: Sequence[float],
+        n_samples: int,
+        seed: int,
+    ) -> np.ndarray:
+        """Return probabilistic sample paths around an arbitrary point forecast."""
+
+        center_values = np.asarray(prediction, dtype=np.float32)
+        horizon = int(center_values.shape[0])
+        center = center_values.reshape(1, horizon, 1)
         if n_samples <= 1 or self.noise_scale <= 0:
             return np.repeat(center, repeats=max(1, n_samples), axis=0)
 

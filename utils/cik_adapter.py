@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
+import sys
+import types
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import pandas as pd
@@ -15,6 +19,7 @@ from torch.utils.data import DataLoader, Dataset
 CIK_DATASET_ID = "ServiceNow/context-is-key"
 DEFAULT_CIK_SPLIT = "test"
 DEFAULT_CONTEXT_FIELDS = ("scenario", "background", "constraints")
+DEFAULT_CIK_ROI_WEIGHT = 0.5
 STIC_CIK_TASK_PRESETS: Dict[str, Tuple[str, ...]] = {
     "stic_minimal": (
         "ElectricityIncreaseInPredictionTask",
@@ -40,6 +45,10 @@ STIC_CIK_TASK_PRESETS: Dict[str, Tuple[str, ...]] = {
     ),
 }
 
+_OFFICIAL_METRIC_PACKAGE = "stic_cik_metrics_compat"
+_OFFICIAL_THRESHOLD_WEIGHTED_CRPS = None
+_OFFICIAL_CONSTRAINT_CLASSES = None
+
 
 def resolve_cik_cache_dir(cache_dir: Optional[str] = None) -> Optional[str]:
     if cache_dir:
@@ -62,6 +71,7 @@ def load_cik_rows(
     task_names: Optional[Sequence[str]] = None,
     preset_name: Optional[str] = None,
     limit: Optional[int] = None,
+    limit_per_task: bool = False,
     cache_dir: Optional[str] = None,
 ) -> HFDataset:
     resolved_cache_dir = resolve_cik_cache_dir(cache_dir)
@@ -82,7 +92,18 @@ def load_cik_rows(
         dataset = dataset.select(indices)
 
     if limit is not None:
-        dataset = dataset.select(range(min(int(limit), len(dataset))))
+        resolved_limit = max(0, int(limit))
+        if limit_per_task and requested_names:
+            kept_indices: List[int] = []
+            per_task_counts: Counter[str] = Counter()
+            for row_index, current_name in enumerate(dataset["name"]):
+                if per_task_counts[current_name] >= resolved_limit:
+                    continue
+                kept_indices.append(row_index)
+                per_task_counts[current_name] += 1
+            dataset = dataset.select(kept_indices)
+        else:
+            dataset = dataset.select(range(min(resolved_limit, len(dataset))))
 
     return dataset
 
@@ -236,6 +257,36 @@ class CIKSample:
         }
 
 
+@dataclass
+class CIKOfficialEvaluator:
+    """Benchmark-faithful evaluator backed by official CiK metric code."""
+
+    task_name: str
+    future_frame: pd.DataFrame
+    metric_scaling: float
+    region_of_interest: Tuple[int, ...]
+    metric_constraint: Any
+    roi_weight: float = DEFAULT_CIK_ROI_WEIGHT
+    metric_name: str = "threshold_weighted_crps.metric"
+
+    def evaluate(self, samples: Any) -> Dict[str, float]:
+        """Evaluate forecast samples with the official CiK metric implementation."""
+
+        threshold_weighted_crps = _load_threshold_weighted_crps()
+        sample_array = _normalize_forecast_samples(samples)
+        target = self.future_frame.iloc[:, -1]
+        region_of_interest = list(self.region_of_interest)
+        return threshold_weighted_crps(
+            target=target,
+            forecast=sample_array,
+            scaling=self.metric_scaling,
+            region_of_interest=region_of_interest,
+            roi_weight=self.roi_weight,
+            constraint=self.metric_constraint,
+            compute_variance=False,
+        )
+
+
 def build_cik_sample(
     row: Mapping[str, Any],
     row_index: int,
@@ -283,6 +334,68 @@ def build_cik_sample(
     )
 
 
+def build_cik_official_evaluator(
+    sample: CIKSample | Mapping[str, Any],
+    roi_weight: float = DEFAULT_CIK_ROI_WEIGHT,
+) -> CIKOfficialEvaluator:
+    """Build a row-level official evaluator from a CiK sample or batch item."""
+
+    metadata = sample.metadata if isinstance(sample, CIKSample) else sample["metadata"]
+    future_frame = sample.future_frame if isinstance(sample, CIKSample) else sample["future_frame"]
+    region_of_interest = (
+        sample.region_of_interest if isinstance(sample, CIKSample) else sample["region_of_interest"]
+    )
+    metric_scaling = (
+        float(sample.metric_scaling)
+        if isinstance(sample, CIKSample)
+        else float(sample.get("metric_scaling", metadata.get("metric_scaling", 1.0)))
+    )
+    task_name = sample.task_name if isinstance(sample, CIKSample) else str(sample["task_name"])
+    metric_constraint = build_cik_metric_constraint(metadata)
+    return CIKOfficialEvaluator(
+        task_name=task_name,
+        future_frame=future_frame,
+        metric_scaling=metric_scaling,
+        region_of_interest=tuple(int(index) for index in region_of_interest),
+        metric_constraint=metric_constraint,
+        roi_weight=float(roi_weight),
+    )
+
+
+def build_cik_metric_constraint(metadata: Mapping[str, Any]) -> Any:
+    """Reconstruct official CiK constraint objects from HF row metadata."""
+
+    ListConstraint, MaxConstraint, MinConstraint, VariableMaxConstraint = (
+        _load_constraint_classes()
+    )
+
+    constraints = []
+    constraint_min = float(metadata.get("constraint_min", float("-inf")))
+    constraint_max = float(metadata.get("constraint_max", float("inf")))
+    variable_indices = tuple(int(value) for value in metadata.get("constraint_variable_max_index", ()))
+    variable_values = tuple(
+        float(value) for value in metadata.get("constraint_variable_max_values", ())
+    )
+
+    if constraint_min != float("-inf") and not pd.isna(constraint_min):
+        constraints.append(MinConstraint(constraint_min))
+    if constraint_max != float("inf") and not pd.isna(constraint_max):
+        constraints.append(MaxConstraint(constraint_max))
+    if variable_indices and variable_values:
+        constraints.append(
+            VariableMaxConstraint(
+                indices=pd.Index(variable_indices).to_numpy(dtype=int),
+                thresholds=pd.Index(variable_values).to_numpy(dtype=float),
+            )
+        )
+
+    if not constraints:
+        return None
+    if len(constraints) == 1:
+        return constraints[0]
+    return ListConstraint(constraints)
+
+
 class CIKHFDataset(Dataset):
     def __init__(
         self,
@@ -291,6 +404,7 @@ class CIKHFDataset(Dataset):
         task_names: Optional[Sequence[str]] = None,
         preset_name: Optional[str] = None,
         limit: Optional[int] = None,
+        limit_per_task: bool = False,
         cache_dir: Optional[str] = None,
         context_fields: Sequence[str] = DEFAULT_CONTEXT_FIELDS,
         target_column: Optional[str | int] = None,
@@ -302,6 +416,7 @@ class CIKHFDataset(Dataset):
             task_names=task_names,
             preset_name=preset_name,
             limit=limit,
+            limit_per_task=limit_per_task,
             cache_dir=cache_dir,
         )
         self.context_fields = tuple(context_fields)
@@ -420,6 +535,7 @@ def build_cik_dataloader(
     task_names: Optional[Sequence[str]] = None,
     preset_name: Optional[str] = None,
     limit: Optional[int] = None,
+    limit_per_task: bool = False,
     cache_dir: Optional[str] = None,
     context_fields: Sequence[str] = DEFAULT_CONTEXT_FIELDS,
     target_column: Optional[str | int] = None,
@@ -434,6 +550,7 @@ def build_cik_dataloader(
         task_names=task_names,
         preset_name=preset_name,
         limit=limit,
+        limit_per_task=limit_per_task,
         cache_dir=cache_dir,
         context_fields=context_fields,
         target_column=target_column,
@@ -447,6 +564,104 @@ def build_cik_dataloader(
         collate_fn=cik_collate_fn,
     )
     return dataset, dataloader
+
+
+def _ensure_cik_benchmark_on_path() -> None:
+    benchmark_root = Path(__file__).resolve().parents[2] / "context-is-key-forecasting"
+    if str(benchmark_root) not in sys.path:
+        sys.path.insert(0, str(benchmark_root))
+
+
+def _load_threshold_weighted_crps():
+    global _OFFICIAL_THRESHOLD_WEIGHTED_CRPS
+    if _OFFICIAL_THRESHOLD_WEIGHTED_CRPS is not None:
+        return _OFFICIAL_THRESHOLD_WEIGHTED_CRPS
+
+    roi_metric_module = _load_official_metrics_module("roi_metric")
+    _OFFICIAL_THRESHOLD_WEIGHTED_CRPS = roi_metric_module.threshold_weighted_crps
+    return _OFFICIAL_THRESHOLD_WEIGHTED_CRPS
+
+
+def _load_constraint_classes():
+    global _OFFICIAL_CONSTRAINT_CLASSES
+    if _OFFICIAL_CONSTRAINT_CLASSES is not None:
+        return _OFFICIAL_CONSTRAINT_CLASSES
+
+    constraint_module = _load_official_metrics_module("constraints")
+    _OFFICIAL_CONSTRAINT_CLASSES = (
+        constraint_module.ListConstraint,
+        constraint_module.MaxConstraint,
+        constraint_module.MinConstraint,
+        constraint_module.VariableMaxConstraint,
+    )
+    return _OFFICIAL_CONSTRAINT_CLASSES
+
+
+def _normalize_forecast_samples(samples: Any) -> Any:
+    if hasattr(samples, "detach"):
+        samples = samples.detach().cpu().numpy()
+    if hasattr(samples, "numpy") and not isinstance(samples, pd.DataFrame):
+        samples = samples.numpy()
+    if len(samples.shape) == 3:
+        samples = samples[:, :, 0]
+    return samples
+
+
+def _load_official_metrics_module(module_basename: str):
+    metrics_root = _get_cik_metrics_root()
+    _ensure_fake_metric_package(metrics_root)
+
+    if module_basename in ("constraints", "crps"):
+        module_name = f"{_OFFICIAL_METRIC_PACKAGE}.{module_basename}"
+        if module_name in sys.modules:
+            return sys.modules[module_name]
+        module_path = metrics_root / f"{module_basename}.py"
+        return _load_module_from_file(module_name=module_name, file_path=module_path)
+
+    if module_basename == "roi_metric":
+        _load_official_metrics_module("constraints")
+        _load_official_metrics_module("crps")
+        module_name = f"{_OFFICIAL_METRIC_PACKAGE}.roi_metric"
+        if module_name in sys.modules:
+            return sys.modules[module_name]
+        module_path = metrics_root / "roi_metric.py"
+        source = module_path.read_text(encoding="utf-8")
+        source = "from __future__ import annotations\n" + source
+        module = types.ModuleType(module_name)
+        module.__file__ = str(module_path)
+        module.__package__ = _OFFICIAL_METRIC_PACKAGE
+        sys.modules[module_name] = module
+        exec(compile(source, str(module_path), "exec"), module.__dict__)
+        return module
+
+    raise KeyError(f"Unknown official metrics module '{module_basename}'.")
+
+
+def _get_cik_metrics_root() -> Path:
+    return (
+        Path(__file__).resolve().parents[2]
+        / "context-is-key-forecasting"
+        / "cik_benchmark"
+        / "metrics"
+    )
+
+
+def _ensure_fake_metric_package(metrics_root: Path) -> None:
+    if _OFFICIAL_METRIC_PACKAGE in sys.modules:
+        return
+    package_module = types.ModuleType(_OFFICIAL_METRIC_PACKAGE)
+    package_module.__path__ = [str(metrics_root)]
+    sys.modules[_OFFICIAL_METRIC_PACKAGE] = package_module
+
+
+def _load_module_from_file(module_name: str, file_path: Path):
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load module '{module_name}' from '{file_path}'.")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _normalize_task_names(
@@ -468,7 +683,11 @@ __all__ = [
     "STIC_CIK_TASK_PRESETS",
     "CIKSample",
     "CIKHFDataset",
+    "CIKOfficialEvaluator",
+    "DEFAULT_CIK_ROI_WEIGHT",
     "build_cik_dataloader",
+    "build_cik_metric_constraint",
+    "build_cik_official_evaluator",
     "build_cik_sample",
     "cik_collate_fn",
     "frame_to_target_tensor",
